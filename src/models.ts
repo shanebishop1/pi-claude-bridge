@@ -148,17 +148,32 @@ function newestPartialMatch<T extends { id: string }>(candidates: T[]): T | unde
 	});
 }
 
-// Produce the model metadata registered with pi. The registered contextWindow must
-// match the window the bridge actually requests from Claude Code, or pi's status
-// bar and auto-compaction threshold will misreport. The runtime policy is based
-// on measured SDK behavior - see diag/CONTEXT-SIZE.md
+// Claude Code refuses a turn locally, without an API request, once its context
+// reaches window - min(maxOutputTokens, 20000) - 3000 (977,000 on 1M), measured
+// in #156 and #215. pi compacts only past contextWindow - reserveTokens, so
+// registering the served window leaves a dead band (977,000 to 983,616 on 1M,
+// 177,000 to 183,616 on 200K) where every turn fails with "Prompt is too long"
+// before pi's threshold compaction can fire. The full 20,000 cap is subtracted
+// whatever pi-ai declares as maxTokens: Claude Code's own output limit for the
+// model can be larger, and over-reserving only compacts a little earlier.
+const CC_BLOCKING_RESERVE = 20_000 + 3_000;
+
+export function claudeCodeUsableWindow(servedWindow: number): number {
+	return servedWindow - CC_BLOCKING_RESERVE;
+}
+
+// Produce the model metadata registered with pi. The registered contextWindow is
+// the part of the served window Claude Code will actually send, so pi's status
+// bar and auto-compaction threshold track the real ceiling. The runtime policy is
+// based on measured SDK behavior - see diag/CONTEXT-SIZE.md
 export function applyLongContext<T extends { id: string; name: string; contextWindow?: number | null }>(
 	models: T[],
 	settings: LongContextSettings,
 ): T[] {
 	return models.map((m) => {
-		const { contextWindow } = resolveClaudeCodeRuntimeModel(m, settings);
-		const name = contextWindow > TWO_HUNDRED_K_CONTEXT && !/\b1M\b/i.test(m.name) ? `${m.name} 1M` : m.name;
+		const served = resolveClaudeCodeRuntimeModel(m, settings).contextWindow;
+		const contextWindow = claudeCodeUsableWindow(served);
+		const name = served > TWO_HUNDRED_K_CONTEXT && !/\b1M\b/i.test(m.name) ? `${m.name} 1M` : m.name;
 		return contextWindow === m.contextWindow && name === m.name ? m : { ...m, contextWindow, name };
 	});
 }

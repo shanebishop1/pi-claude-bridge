@@ -7,7 +7,7 @@
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { applyLongContext, buildModels, claudeCodeModelId, resolveClaudeCodeRuntimeModel, resolveModel } from "../src/models.js";
+import { applyLongContext, buildModels, claudeCodeModelId, claudeCodeUsableWindow, resolveClaudeCodeRuntimeModel, resolveModel } from "../src/models.js";
 import { getModels } from "@earendil-works/pi-ai/compat";
 
 const PRO = { plan: "pro", longContextExtraUsage: false };
@@ -145,16 +145,27 @@ describe("claudeCodeModelId", () => {
 
 describe("applyLongContext", () => {
 	const models = buildModels(getModels("anthropic"));
+	// What Claude Code will send of each served window (see claudeCodeUsableWindow).
+	const USABLE_1M = 977000;
+	const USABLE_200K = 177000;
 
 	it("registers 1M for measured-1M models", () => {
 		const registered = applyLongContext(models, PRO);
-		assert.equal(find(registered, "claude-opus-5").contextWindow, 1000000);
-		assert.equal(find(registered, "claude-opus-4-7").contextWindow, 1000000);
-		assert.equal(find(registered, "claude-fable-5-1").contextWindow, 1000000);
+		assert.equal(find(registered, "claude-opus-5").contextWindow, USABLE_1M);
+		assert.equal(find(registered, "claude-opus-4-7").contextWindow, USABLE_1M);
+		assert.equal(find(registered, "claude-fable-5-1").contextWindow, USABLE_1M);
 	});
 
 	it("leaves unmeasured sonnet-4-5 at 200K", () => {
-		assert.equal(find(applyLongContext(models, PRO), "claude-sonnet-4-5").contextWindow, 200000);
+		assert.equal(find(applyLongContext(models, PRO), "claude-sonnet-4-5").contextWindow, USABLE_200K);
+	});
+
+	it("pi's default threshold compaction fires before Claude Code blocks the turn (#156, #215)", () => {
+		const reserveTokens = 16384; // pi's default compaction.reserveTokens
+		// Claude Code's blocking point per served window, as measured in #156.
+		for (const [served, blocksAt] of [[1000000, 977000], [200000, 177000]]) {
+			assert.ok(claudeCodeUsableWindow(served) - reserveTokens < blocksAt, `${served}`);
+		}
 	});
 
 	it("haiku shortcut and no-match still resolve", () => {
@@ -164,16 +175,16 @@ describe("applyLongContext", () => {
 
 	it("plan gates only the measured exceptions", () => {
 		const pro = applyLongContext(models, PRO);
-		assert.equal(find(pro, "claude-opus-4-6").contextWindow, 200000);
-		assert.equal(find(pro, "claude-sonnet-4-6").contextWindow, 200000);
+		assert.equal(find(pro, "claude-opus-4-6").contextWindow, USABLE_200K);
+		assert.equal(find(pro, "claude-sonnet-4-6").contextWindow, USABLE_200K);
 
 		const max = applyLongContext(models, MAX);
-		assert.equal(find(max, "claude-opus-4-6").contextWindow, 1000000);
-		assert.equal(find(max, "claude-sonnet-4-6").contextWindow, 200000);
+		assert.equal(find(max, "claude-opus-4-6").contextWindow, USABLE_1M);
+		assert.equal(find(max, "claude-sonnet-4-6").contextWindow, USABLE_200K);
 
 		const extra = applyLongContext(models, EXTRA);
-		assert.equal(find(extra, "claude-opus-4-6").contextWindow, 1000000);
-		assert.equal(find(extra, "claude-sonnet-4-6").contextWindow, 1000000);
+		assert.equal(find(extra, "claude-opus-4-6").contextWindow, USABLE_1M);
+		assert.equal(find(extra, "claude-sonnet-4-6").contextWindow, USABLE_1M);
 
 		// Does not mutate the source table used for id resolution.
 		assert.equal(find(models, "claude-opus-4-6").contextWindow, 1000000);

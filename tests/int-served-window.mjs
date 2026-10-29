@@ -9,6 +9,7 @@ import { readFileSync, rmSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRpcHarness } from "./lib/rpc-harness.mjs";
+import { claudeCodeUsableWindow } from "../src/models.js";
 
 const TIMEOUT = 120_000;
 const BRIDGE_MODEL = "claude-bridge/claude-haiku-4-5";
@@ -47,13 +48,14 @@ try {
 	if (!/registered=\d+/.test(line)) throw new Error("missing registered number");
 	if (!/servedModel=/.test(line)) throw new Error("missing servedModel");
 
-	// The bridge's invariant: pi's registered window must equal the window CC
-	// actually serves, or pi's status bar and auto-compaction threshold drift
-	// from reality (issue #24/#17). Account-agnostic — holds on any plan.
+	// The bridge's invariant: pi's registered window must be the usable part of
+	// the window CC actually serves, or pi's status bar and auto-compaction
+	// threshold drift from reality (issues #24/#17, #156/#215). Account-agnostic —
+	// holds on any plan.
 	const served = Number(line.match(/served contextWindow=(\d+)/)[1]);
 	const registered = Number(line.match(/registered=(\d+)/)[1]);
-	if (served !== registered) {
-		throw new Error(`served contextWindow (${served}) != registered (${registered}); pi's compaction threshold is out of sync with the CC window.\n  ${line.trim()}`);
+	if (claudeCodeUsableWindow(served) !== registered) {
+		throw new Error(`registered (${registered}) != usable part of served contextWindow (${served}); pi's compaction threshold is out of sync with the CC window.\n  ${line.trim()}`);
 	}
 
 	console.log("PASS");
