@@ -35,7 +35,7 @@ import { askClaudeCallTags, askClaudeToolDescription, buildAskClaudeParams, reso
 import { nonSystemMessages, toBridgeContext } from "./transcript.js";
 import { forgetSessionCwd, rememberSessionCwd, rememberSummarySession, sessionCwdFor, summarySessionFor } from "./session-cwd.js";
 import { updateUsage, type SdkUsage } from "./usage.js";
-import { rateLimitResponse } from "./rate-limit.js";
+import { rateLimitResponse, USAGE_LIMIT_ENTRY, usageLimitEntry } from "./rate-limit.js";
 import { setTraceNotifier, traceAssertReady, traceEvent, traceId, traceInput, traceQueryStart, traceSignalId, traceSnapshot, traceStrict } from "./cache-trace.js";
 
 // --- Debug logging ---
@@ -465,6 +465,16 @@ function describeRateLimitFailure(rejection: { rateLimitType?: string; resetsAt?
 	return `Claude quota exceeded — rate limit${kind}${resets}: ${failure}`;
 }
 
+/** Persist the rejection that failed a turn as a typed session entry (see USAGE_LIMIT_ENTRY).
+ *  Out of model context; a failure to write it must not change the turn's outcome. */
+function recordUsageLimit(rejection: { rateLimitType?: string; resetsAt?: number }): void {
+	try {
+		piApi?.appendEntry(USAGE_LIMIT_ENTRY, usageLimitEntry(rejection));
+	} catch (err) {
+		debug(`usage-limit entry not recorded: ${errorMessage(err)}`);
+	}
+}
+
 /** Reports to the call that owns the open stream, before its next event, as pi's own
  *  providers do. A failing consumer must not end the turn it is observing. */
 async function reportHeldRateLimit(c: QueryContext, model: Model<any>): Promise<void> {
@@ -815,6 +825,9 @@ export const __test = {
 	getSharedSession(piSessionId: string | null = null) {
 		return sessionStateFor(piSessionId);
 	},
+	setPiApi(api: Pick<ExtensionAPI, "appendEntry"> | null) {
+		piApi = api as ExtensionAPI | null;
+	},
 	setPiUI(ui: ExtensionUIContext | null) {
 		piUI = ui;
 	},
@@ -904,6 +917,7 @@ function mapToolArgs(
 
 // Global (not query state):
 let piUI: ExtensionUIContext | null = null;
+let piApi: ExtensionAPI | null = null;
 setTraceNotifier((message) => {
 	debug(message);
 	piUI?.notify(message, "error");
@@ -1557,6 +1571,7 @@ async function consumeQuery(
 				// unrelated failure on this query doesn't inherit the label.
 				if (queryCtx.rateLimitRejection) {
 					resultError = describeRateLimitFailure(queryCtx.rateLimitRejection, resultError);
+					recordUsageLimit(queryCtx.rateLimitRejection);
 					queryCtx.rateLimitRejection = null;
 				}
 				debug(`consumeQuery: error result, subtype=${message.subtype}, error=${resultError}`);
@@ -2523,6 +2538,7 @@ const PREVIEW_MAX_LINES = 6;
 let askClaudeToolName = "AskClaude";
 
 export default function (pi: ExtensionAPI) {
+	piApi = pi;
 	// Disable non-essential Claude Code traffic (update checks, MCP registry, telemetry)
 	process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
 

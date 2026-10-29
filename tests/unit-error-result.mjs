@@ -91,6 +91,36 @@ describe("a rate-limited failure", () => {
 		assert.ok(c.turnOutput.errorMessage.includes("five_hour"));
 	});
 
+	it("records the rejected window as a typed session entry, once", async () => {
+		const entries = [];
+		__test.setPiApi({ appendEntry: (customType, data) => entries.push({ customType, data }) });
+		try {
+			const c = makeCtx();
+			await consume(c, [rejection, limitResult]);
+			assert.deepEqual(entries, [{
+				customType: "claude-bridge-usage-limit",
+				data: { reason: "usage", rateLimitType: "five_hour", resetsAt: 1786141800 * 1000 },
+			}]);
+			// A plain failure with no rejection before it records nothing.
+			await consume(makeCtx(), [errorResult]);
+			assert.equal(entries.length, 1);
+		} finally {
+			__test.setPiApi(null);
+		}
+	});
+
+	it("still fails the turn when the entry cannot be written", async () => {
+		__test.setPiApi({ appendEntry: () => { throw new Error("no session"); } });
+		try {
+			const c = makeCtx();
+			await consume(c, [rejection, limitResult]);
+			assert.equal(c.turnOutput.stopReason, "error");
+			assert.match(c.turnOutput.errorMessage, RATE_LIMIT);
+		} finally {
+			__test.setPiApi(null);
+		}
+	});
+
 	it("labels only the failure it caused, not a later one", async () => {
 		const c = makeCtx();
 		await consume(c, [rejection, limitResult]);

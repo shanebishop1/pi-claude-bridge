@@ -25,6 +25,30 @@ export type RateLimitInfo = {
 	unifiedWindows?: Record<string, UsageWindow | undefined>;
 };
 
+/** Custom session entry recording a rejected window as typed data. pi carries a
+ *  rate limit only as `errorMessage` text, which a launcher must not treat as
+ *  provider evidence; this entry is the structured record it can read instead
+ *  (e.g. to fall back to another model once a subscription window is spent). */
+export const USAGE_LIMIT_ENTRY = "claude-bridge-usage-limit";
+
+export type UsageLimitEntry = {
+	/** "usage" for a spent subscription window, "rate_limit" otherwise. */
+	reason: "usage" | "rate_limit";
+	rateLimitType: string | null;
+	/** Unix milliseconds, or null when Claude Code gave no reset time. */
+	resetsAt: number | null;
+};
+
+export function usageLimitEntry(rejection: { rateLimitType?: string; resetsAt?: number }): UsageLimitEntry {
+	const window = typeof rejection.rateLimitType === "string" && rejection.rateLimitType ? rejection.rateLimitType : null;
+	return {
+		reason: window ? "usage" : "rate_limit",
+		rateLimitType: window,
+		// rate_limit_event's resetsAt is Unix seconds.
+		resetsAt: typeof rejection.resetsAt === "number" && rejection.resetsAt > 0 ? Math.round(rejection.resetsAt * 1000) : null,
+	};
+}
+
 /** Always 200: a "rejected" status can still be served from overage, so only the status header says so. */
 export function rateLimitResponse(info: RateLimitInfo): ProviderResponse {
 	const headers: Record<string, string> = {};

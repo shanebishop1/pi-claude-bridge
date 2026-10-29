@@ -2,6 +2,8 @@
 
 ## UNRELEASED
 
+- **Add: typed usage-limit session entry** — A turn failed by a rejected rate-limit window also records a `claude-bridge-usage-limit` custom entry (`reason`, `rateLimitType`, `resetsAt` in ms), so launchers can fall back on structured evidence instead of matching error text.
+
 - **Fix: threshold compaction fires before Claude Code blocks the turn (#156, #215)** — Register the part of each served window Claude Code will send (served − 23,000, e.g. 977,000 on 1M), so pi's default threshold compacts before Claude Code refuses the turn with "Prompt is too long".
 
 - **Fix: keep Claude Code history that still matches pi's (#222)** — The bridge now compares message content instead of counting messages, so it catches edits and keeps everything up to the first difference. Rewinds, edits, interruptions and restarts fork or trim the Claude Code session instead of rebuilding it, preserving prompt cache and thinking. Fixes #30, #42, #62, #86, #103, #165, #182, #202, #203; helps #55, #77, #114, #207. Builds on PR #136; thanks @sonSunnoi.

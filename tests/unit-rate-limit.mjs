@@ -5,7 +5,17 @@ import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { QueryContext } from "../src/query-state.js";
-import { rateLimitResponse } from "../src/rate-limit.js";
+import { rateLimitResponse, usageLimitEntry } from "../src/rate-limit.js";
+
+describe("usageLimitEntry", () => {
+	it("names a spent subscription window as usage, reset in Unix ms", () => {
+		assert.deepEqual(usageLimitEntry({ rateLimitType: "seven_day", resetsAt: 1786141800 }),
+			{ reason: "usage", rateLimitType: "seven_day", resetsAt: 1786141800000 });
+	});
+	it("falls back to rate_limit with no window and no reset", () => {
+		assert.deepEqual(usageLimitEntry({}), { reason: "rate_limit", rateLimitType: null, resetsAt: null });
+	});
+});
 
 const mod = await import("../src/index.js");
 const { __test } = mod;
