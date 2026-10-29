@@ -30,7 +30,7 @@ import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getProjectDir, openSession } from "cc-session-io";
 import { FIRST_PARTY_ENV } from "./lib/first-party.mjs";
@@ -45,7 +45,9 @@ const flag = (name, fallback) => {
 const MODEL = flag("model", "claude-bridge/claude-haiku-5-5");
 // Explicit: pi's default comes from settings, and production runs at medium.
 const THINKING = flag("thinking", "medium");
-const OUT = flag("out") ?? mkdtempSync(join(tmpdir(), "lifecycle-"));
+// Absolute: pi runs in each scenario's cwd, so a relative --out would scatter the
+// trace, debug log and agent dir under it.
+const OUT = resolve(flag("out") ?? mkdtempSync(join(tmpdir(), "lifecycle-")));
 const EXTENSION = join(REPO, "diag/lib/lifecycle-extension.ts");
 const BRIDGE = flag("bridge");
 const TURNS = Number(flag("turns", 0));
