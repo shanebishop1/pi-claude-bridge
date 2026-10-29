@@ -4,7 +4,7 @@
 // (no debug log or trace needed), so it can be run any time over past usage.
 //
 //   node diag/cache-report.mjs [--since 7d|YYYY-MM-DD] [--no-baseline] [--json]
-//       [--pi-sessions DIR] [--claude-projects DIR] [--max-break-rate 0.05]
+//       [--pi-sessions DIR]... [--claude-projects DIR] [--max-break-rate 0.05]
 //
 // Each request is compared with the request it continues: in pi its nearest
 // assistant ancestor along parentId (so /tree branches compare with the turn they
@@ -216,13 +216,17 @@ function parseSince(value) {
 async function main() {
 	const args = process.argv.slice(2);
 	const flag = (name) => { const i = args.indexOf(`--${name}`); return i === -1 ? undefined : args[i + 1]; };
+	const flags = (name) => args.flatMap((a, i) => (a === `--${name}` && i + 1 < args.length ? [args[i + 1]] : []));
 	const sinceMs = parseSince(flag("since"));
 	const inRange = (r) => Date.parse(r.ts) >= sinceMs;
-	const piDir = flag("pi-sessions") ?? join(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"), "sessions");
+	// Repeatable: e.g. the personal agent dir plus a Gas City private HOME's.
+	const piDirs = flags("pi-sessions");
+	if (!piDirs.length) piDirs.push(join(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"), "sessions"));
+	const piDir = piDirs.join(", ");
 	const ccDir = flag("claude-projects") ?? join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "projects");
 
 	const bridge = [];
-	for (const f of jsonlFiles(piDir, sinceMs)) bridge.push(...(await piRequests(f)).filter(inRange));
+	for (const dir of piDirs) for (const f of jsonlFiles(dir, sinceMs)) bridge.push(...(await piRequests(f)).filter(inRange));
 	const baseline = [];
 	if (!args.includes("--no-baseline")) for (const f of jsonlFiles(ccDir, sinceMs)) baseline.push(...(await claudeRequests(f)).filter(inRange));
 
