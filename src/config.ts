@@ -37,6 +37,9 @@ export interface Config {
 		// Model ids (e.g. "claude-future-9") whose declared 1M context Claude Code
 		// does not actually serve; pins them to the bare id at 200K.
 		forceTwoHundredK?: string[];
+		// Optional token window for pi's auto-compaction; does not change the
+		// served model id or Claude Code's own compaction settings.
+		autoCompactWindow?: number;
 	};
 }
 
@@ -106,10 +109,16 @@ export function markAskClaudeDeprecationNoticeShown(): string {
 export function loadConfig(cwd: string): Config {
 	const global = tryParseJson(globalConfigPath());
 	const project = tryParseJson(join(cwd, CONFIG_DIR_NAME, "claude-bridge.json"));
+	const provider = { ...global.provider, ...project.provider };
+	if (provider.autoCompactWindow !== undefined &&
+		(!Number.isSafeInteger(provider.autoCompactWindow) || provider.autoCompactWindow <= 0)) {
+		console.error("claude-bridge: provider.autoCompactWindow must be a positive integer token count; ignoring it");
+		delete provider.autoCompactWindow;
+	}
 	return {
 		startupNoticeShown: project.startupNoticeShown ?? global.startupNoticeShown,
 		askClaudeDeprecationShown: project.askClaudeDeprecationShown ?? global.askClaudeDeprecationShown,
 		askClaude: { ...global.askClaude, ...project.askClaude },
-		provider: { ...global.provider, ...project.provider },
+		provider,
 	};
 }

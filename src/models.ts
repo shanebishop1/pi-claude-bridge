@@ -61,6 +61,8 @@ export type LongContextSettings = {
 	// Model ids whose declared 1M context Claude Code turned out not to serve;
 	// forces bare id at 200K without a code change.
 	forceTwoHundredK?: string[];
+	// Cap pi's compaction window without changing the served model variant.
+	autoCompactWindow?: number;
 };
 
 export type ClaudeCodeRuntimeModel = {
@@ -162,17 +164,17 @@ export function claudeCodeUsableWindow(servedWindow: number): number {
 	return servedWindow - CC_BLOCKING_RESERVE;
 }
 
-// Produce the model metadata registered with pi. The registered contextWindow is
-// the part of the served window Claude Code will actually send, so pi's status
-// bar and auto-compaction threshold track the real ceiling. The runtime policy is
-// based on measured SDK behavior - see diag/CONTEXT-SIZE.md
+// Produce the model metadata registered with pi. Subtract Claude Code's blocking
+// reserve from the served window, or an optional earlier compaction window.
+// The display label and runtime id still describe the served entitlement.
+// The runtime policy is based on measured SDK behavior - see diag/CONTEXT-SIZE.md.
 export function applyLongContext<T extends { id: string; name: string; contextWindow?: number | null }>(
 	models: T[],
 	settings: LongContextSettings,
 ): T[] {
 	return models.map((m) => {
 		const served = resolveClaudeCodeRuntimeModel(m, settings).contextWindow;
-		const contextWindow = claudeCodeUsableWindow(served);
+		const contextWindow = claudeCodeUsableWindow(Math.min(served, settings.autoCompactWindow ?? served));
 		const name = served > TWO_HUNDRED_K_CONTEXT && !/\b1M\b/i.test(m.name) ? `${m.name} 1M` : m.name;
 		return contextWindow === m.contextWindow && name === m.name ? m : { ...m, contextWindow, name };
 	});

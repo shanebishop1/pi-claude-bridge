@@ -160,6 +160,36 @@ describe("applyLongContext", () => {
 		assert.equal(find(applyLongContext(models, PRO), "claude-sonnet-4-5").contextWindow, USABLE_200K);
 	});
 
+	it("caps pi's compaction window but preserves the served [1m] variant and label", () => {
+		const settings = { ...PRO, autoCompactWindow: 400000 };
+		const source = oneM("claude-opus-5");
+		const [registered] = applyLongContext([source], settings);
+		assert.equal(registered.contextWindow, 377000);
+		assert.equal(registered.contextWindow - 16384, 360616);
+		assert.equal(registered.name, "claude-opus-5 1M");
+		assert.equal(registered.id, "claude-opus-5");
+		assert.equal(claudeCodeModelId(registered, settings), "claude-opus-5[1m]");
+		assert.equal(source.contextWindow, 1000000, "does not mutate the catalog");
+		assert.equal(find(applyLongContext(models, settings), "claude-opus-5").name, "Claude Opus 5 1M");
+	});
+
+	it("never expands a served window, including forced 200K models", () => {
+		for (const autoCompactWindow of [400000, 1000000, 2000000]) {
+			const settings = { ...PRO, autoCompactWindow, forceTwoHundredK: ["claude-opus-5"] };
+			const registered = applyLongContext(models, settings);
+			assert.equal(find(registered, "claude-opus-5").contextWindow, USABLE_200K);
+			assert.equal(find(registered, "claude-haiku-4-5").contextWindow, USABLE_200K);
+			assert.equal(claudeCodeModelId(find(registered, "claude-opus-5"), settings), "claude-opus-5");
+		}
+		assert.equal(find(applyLongContext(models, { ...PRO, autoCompactWindow: 2000000 }), "claude-opus-5").contextWindow, USABLE_1M);
+	});
+
+	it("also caps 200K models when the requested window is smaller", () => {
+		const [registered] = applyLongContext([mockPiAiModel("claude-haiku-4-5")], { ...PRO, autoCompactWindow: 100000 });
+		assert.equal(registered.contextWindow, 77000);
+		assert.equal(registered.name, "claude-haiku-4-5");
+	});
+
 	it("pi's default threshold compaction fires before Claude Code blocks the turn (#156, #215)", () => {
 		const reserveTokens = 16384; // pi's default compaction.reserveTokens
 		// Claude Code's blocking point per served window, as measured in #156.

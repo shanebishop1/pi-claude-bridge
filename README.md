@@ -52,6 +52,7 @@ Config: `~/.pi/agent/claude-bridge.json` (global) or the project Pi config direc
   "provider": {
     "plan": "max",
     "longContextExtraUsage": false,
+    "autoCompactWindow": 400000,
     "strictMcpConfig": true,
     "pathToClaudeCodeExecutable": "/home/you/.nix-profile/bin/claude"
   }
@@ -72,14 +73,16 @@ Config: `~/.pi/agent/claude-bridge.json` (global) or the project Pi config direc
 - `plan` (default `"pro"`) — set to `"max"` if you have a Max (or Team Premium/Enterprise) Anthropic plan. This enables Opus with 1M context.
 - `longContextExtraUsage` — set to `true` to enable 1M context models even if they cost money through Extra Usage on your plan. It enables Sonnet 4.6 with 1M on every plan and Opus 4.6 with 1M on Pro. Not needed for Opus 4.7 or 4.8.
 - `forceTwoHundredK` — array of model ids to pin to 200K context (bare id, no `[1m]` suffix). Use if pi-ai declares a model at 1M but Claude Code won't serve it on your plan.
+- `autoCompactWindow` — optional positive integer token count for earlier pi auto-compaction. The registered context window is `min(served window, autoCompactWindow) - 23000` (Claude Code's blocking reserve); pi then subtracts its own `compaction.reserveTokens`. For example, `400000` on a 1M model registers 377,000 and, with pi's default 16,384-token reserve, triggers compaction above 360,616 tokens. Choose a window larger than the combined reserves to leave room for conversation. It never expands the served window or changes the `[1m]` model id / 1M label. Omit it to use the full served window minus the blocking reserve. Invalid values are ignored with a console error. This setting applies to the provider, not AskClaude.
 - `strictMcpConfig` — block MCP servers from `~/.claude.json` / `.mcp.json` (default `true`). Cloud MCP (Gmail/Drive via claude.ai OAuth) is always blocked.
 - `autoMemoryEnabled` — enable Claude Code's auto-memory system (default `false`)
 - `pathToClaudeCodeExecutable` — path to the `claude` binary. Useful if your OS/filesystem has the SDK's bundled musl/glibc binaries in a place where they can't run. For example, with Nix you can set the binary to e.g. `"/home/you/.nix-profile/bin/claude"`.
 
+The bridge disables Claude Code's automatic compaction because pi owns it. It does not inherit a compaction window from `~/.claude/settings.json` or `CLAUDE_CODE_AUTO_COMPACT_WINDOW`: set `provider.autoCompactWindow` explicitly. With SDK 0.3.308 / Claude Code 2.1.308, live probes showed that those Claude Code settings do not lower the blocking window when `DISABLE_AUTO_COMPACT=1` (see [probe notes](diag/AUTO-COMPACT-WINDOW.md)).
 
 **Notices:** the startup notice points out when `provider.plan` is unset and records `startupNoticeShown` in the global config. There's also a deprecation notice on first use of AskClaude that records its display date as `askClaudeDeprecationShown`.
 
-**Extension providers and models.json:** pi's `modelOverrides` in `~/.pi/agent/models.json` do not currently apply to extension-registered providers (like claude-bridge). Overriding `contextWindow` or other fields requires editing `src/models.ts` directly — to pin a model to 200K, use `provider.forceTwoHundredK` instead.
+**Extension providers and models.json:** pi's `modelOverrides` in `~/.pi/agent/models.json` do not currently apply to extension-registered providers (like claude-bridge). Use `provider.autoCompactWindow` to compact earlier or `provider.forceTwoHundredK` to request a bare 200K model. Other field overrides require editing `src/models.ts` directly.
 
 ## Tests
 

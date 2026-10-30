@@ -1063,8 +1063,9 @@ function recordUsage(output: AssistantMessage, usage: SdkUsage, model: Model<any
 
 // Log the *served* context window reported by an SDK result message
 // (modelUsage[id].contextWindow), which can differ from the window pi
-// registered (model.contextWindow) when the runtime entitlement doesn't
-// match the docs — e.g. bare Opus served 200K on Pro, or [1m] not honored.
+// registered (model.contextWindow) because of the blocking reserve, an explicit
+// compaction cap, or a runtime entitlement that doesn't match the docs — e.g.
+// bare Opus served 200K on Pro, or [1m] not honored.
 // The result message's modelUsage is otherwise discarded; this makes the
 // gap observable. See issue #18.
 function logServedContextWindow(label: string, message: SDKMessage, model: Model<any>): void {
@@ -2556,6 +2557,7 @@ export default function (pi: ExtensionAPI) {
 		plan: providerSettings.plan ?? "pro",
 		longContextExtraUsage: providerSettings.longContextExtraUsage ?? false,
 		forceTwoHundredK,
+		autoCompactWindow: providerSettings.autoCompactWindow,
 	};
 	const registeredModels = applyLongContext(MODELS, longContextSettings);
 	if (registeredModels.length === 0) {

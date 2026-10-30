@@ -64,22 +64,49 @@ describe("loadConfig", () => {
 			mkdirSync(globalDir, { recursive: true });
 			mkdirSync(projectDir, { recursive: true });
 			writeFileSync(join(globalDir, "claude-bridge.json"), JSON.stringify({
-				provider: { plan: "pro", strictMcpConfig: true },
+				provider: { plan: "pro", strictMcpConfig: true, autoCompactWindow: 600000 },
 				askClaude: { enabled: true, defaultMode: "read" },
 			}));
 			writeFileSync(join(projectDir, "claude-bridge.json"), JSON.stringify({
-				provider: { plan: "max", autoMemoryEnabled: true },
+				provider: { plan: "max", autoMemoryEnabled: true, autoCompactWindow: 400000 },
 				askClaude: { enabled: false },
 			}));
 
 			assert.deepEqual(loadConfig(cwd), {
 				startupNoticeShown: undefined,
 				askClaudeDeprecationShown: undefined,
-				provider: { plan: "max", strictMcpConfig: true, autoMemoryEnabled: true },
+				provider: { plan: "max", strictMcpConfig: true, autoMemoryEnabled: true, autoCompactWindow: 400000 },
 				askClaude: { enabled: false, defaultMode: "read" },
 			});
 		} finally {
 			rmSync(cwd, { recursive: true, force: true });
+		}
+	}));
+
+	it("accepts positive integer autoCompactWindow values from global config", () => withTempHome(() => {
+		const dir = getAgentDir();
+		mkdirSync(dir, { recursive: true });
+		for (const autoCompactWindow of [1, 100000, 400000, 1000000, Number.MAX_SAFE_INTEGER]) {
+			writeFileSync(join(dir, "claude-bridge.json"), JSON.stringify({ provider: { autoCompactWindow } }));
+			assert.equal(loadConfig(dir).provider.autoCompactWindow, autoCompactWindow);
+		}
+	}));
+
+	it("ignores invalid autoCompactWindow values without dropping other settings", () => withTempHome(() => {
+		const dir = getAgentDir();
+		mkdirSync(dir, { recursive: true });
+		const errors = [];
+		const original = console.error;
+		console.error = (...args) => errors.push(args.join(" "));
+		try {
+			for (const autoCompactWindow of [null, 0, -1, 1.5, "400000", "auto", true, [], {}, Number.MAX_SAFE_INTEGER + 1]) {
+				writeFileSync(join(dir, "claude-bridge.json"), JSON.stringify({ provider: { autoCompactWindow, plan: "max" } }));
+				assert.deepEqual(loadConfig(dir).provider, { plan: "max" });
+			}
+			assert.equal(errors.length, 10);
+			assert.ok(errors.every((error) => /provider\.autoCompactWindow.*positive integer.*ignoring/.test(error)));
+		} finally {
+			console.error = original;
 		}
 	}));
 

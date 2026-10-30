@@ -2,6 +2,8 @@
 
 ## UNRELEASED
 
+- **Add: autoCompactWindow** — Set `provider.autoCompactWindow` to compact earlier in pi without changing the served model's context entitlement.
+
 - **Add: typed usage-limit session entry** — A turn failed by a rejected rate-limit window also records a `claude-bridge-usage-limit` custom entry (`reason`, `rateLimitType`, `resetsAt` in ms), so launchers can fall back on structured evidence instead of matching error text.
 
 - **Fix: threshold compaction fires before Claude Code blocks the turn (#156, #215)** — Register the part of each served window Claude Code will send (served − 23,000, e.g. 977,000 on 1M), so pi's default threshold compacts before Claude Code refuses the turn with "Prompt is too long".

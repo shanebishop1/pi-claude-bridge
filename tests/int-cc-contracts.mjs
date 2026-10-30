@@ -537,7 +537,7 @@ test("--thinking-display summarized is still an accepted flag value", { timeout:
  *  Lets a contract assert on the exact request CC builds, at zero API cost.
  *  `paths` records every request line; `overloadFirst` answers that many
  *  /v1/messages posts with a 529 first, which CC retries. */
-function stubApi(requests, { paths, overloadFirst = 0, toolCallsFirst = [], stall = false } = {}) {
+function stubApi(requests, { paths, overloadFirst = 0, toolCallsFirst = [], stall = false, inputTokens = 10 } = {}) {
 	const server = createServer((req, res) => {
 		const chunks = [];
 		paths?.push(`${req.method} ${req.url}`);
@@ -557,7 +557,7 @@ function stubApi(requests, { paths, overloadFirst = 0, toolCallsFirst = [], stal
 					event("content_block_start", { type: "content_block_start", index, content_block: block })
 					+ event("content_block_delta", { type: "content_block_delta", index, delta: block.type === "tool_use" ? { type: "input_json_delta", partial_json: "{}" } : { type: "text_delta", text: "OK" } })
 					+ event("content_block_stop", { type: "content_block_stop", index })).join("");
-				const start = event("message_start", { type: "message_start", message: { id: `msg_stub_${requests.length}`, type: "message", role: "assistant", content: [], model: body.model, stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
+				const start = event("message_start", { type: "message_start", message: { id: `msg_stub_${requests.length}`, type: "message", role: "assistant", content: [], model: body.model, stop_reason: null, stop_sequence: null, usage: { input_tokens: inputTokens, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
 				res.writeHead(200, { "content-type": "text/event-stream" });
 				if (stall) { res.write(start + contentEvents); return; }
 				res.end(
@@ -576,6 +576,63 @@ function stubApi(requests, { paths, overloadFirst = 0, toolCallsFirst = [], stal
 		close: () => server.close(),
 	})));
 }
+
+test("autoCompactWindow does not lower the blocking limit with DISABLE_AUTO_COMPACT=1", { timeout: 120_000 }, async () => {
+	// Inject token usage into a tiny response, not a huge prompt. A second user
+	// turn makes CC check its local blocking limit before sending another request.
+	// The 980K control proves the injected usage actually exercises that check.
+	for (const variant of ["settings", "env", "no-settings", "blocking-control"]) {
+		const requests = [];
+		const api = await stubApi(requests, {
+			inputTokens: variant === "blocking-control" ? 980000 : 380000,
+		});
+		const env = { ...process.env, ANTHROPIC_BASE_URL: api.url, ENABLE_CLAUDEAI_MCP_SERVERS: "0", DISABLE_AUTO_COMPACT: "1", CLAUDE_CODE_ELEGANT_MEADOW: "0" };
+		delete env.CLAUDE_CODE_AUTO_COMPACT_WINDOW;
+		if (variant === "env") env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = "400000";
+		let release;
+		const firstResult = new Promise((resolve) => { release = resolve; });
+		async function* prompt() {
+			yield { type: "user", message: { role: "user", content: "Reply OK." }, parent_tool_use_id: null };
+			await firstResult;
+			yield { type: "user", message: { role: "user", content: "Reply OK again." }, parent_tool_use_id: null };
+		}
+		const q = query({
+			prompt: prompt(),
+			options: providerOptions({
+				model: "claude-sonnet-5-5[1m]", env, persistSession: false,
+				...(variant === "settings" ? { settings: { autoCompactWindow: 400000 } } : {}),
+				...(variant === "no-settings" || variant === "blocking-control" ? { settingSources: [] } : {}),
+			}),
+		});
+		const run = async () => {
+			let result;
+			for await (const message of q) {
+				if (message.type === "result") { result = message; release(); }
+			}
+			return result;
+		};
+		// CC may also ask the same model to title the session. Count only the
+		// actual turns, whose user text is exact (not wrapped in title instructions).
+		const turnRequests = () => requests.filter((request) => request.messages.some((message) =>
+			message.role === "user" && (Array.isArray(message.content) ? message.content : [{ text: message.content }])
+				.some((block) => block.text === "Reply OK." || block.text === "Reply OK again.")));
+		try {
+			if (variant === "blocking-control") {
+				await assert.rejects(run, /Prompt is too long/);
+				assert.equal(turnRequests().length, 1, "CC must block the continuation locally at 980K");
+			} else {
+				const result = await run();
+				assert.equal(result?.is_error, false, variant);
+				assert.equal(turnRequests().length, 2, `${variant}: 380K must not block at a 400K compaction window`);
+				assert.ok(Object.values(result.modelUsage).every((usage) => usage.contextWindow === 1000000), variant);
+			}
+		} finally {
+			release();
+			q.close();
+			api.close();
+		}
+	}
+});
 
 test("resumeSessionAt + forkSession keeps the cut UUIDs and leaves the ancestor untouched", { timeout: 120_000 }, async () => {
 	const requests = [];
