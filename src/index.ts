@@ -70,10 +70,11 @@ const CC_CHILD_ENV = {
 //
 // Excludes rather than settingSources: the source gate that suppresses CLAUDE.md
 // is the same one that reads settings.json, where Bedrock/Vertex users keep
-// `env` and `apiKeyHelper`. Patterns are matched with picomatch against absolute
-// paths; the filename globs cover user, ancestor, project and .claude/ copies,
-// while rules need their own. Managed/policy memory is not excludable by design.
-const CLAUDE_MD_EXCLUDES = ["**/CLAUDE.md", "**/AGENTS.md", "**/.claude/rules/**"];
+// `env` and `apiKeyHelper` (provider.settingSources narrows it, on purpose).
+// Patterns are matched with picomatch against absolute paths; the filename globs
+// cover user, ancestor, project, local and .claude/ copies, while rules need
+// their own. Managed/policy memory is not excludable by design.
+const CLAUDE_MD_EXCLUDES = ["**/CLAUDE.md", "**/CLAUDE.local.md", "**/AGENTS.md", "**/.claude/rules/**"];
 
 // Unique per module evaluation — confirms whether subagents share module state
 const moduleInstanceId = Math.random().toString(36).slice(2, 8);
@@ -2076,7 +2077,7 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 		// + per-project) and .mcp.json. Since pi executes tools (not CC), those are pure
 		// token overhead. --strict-mcp-config tells the binary to use ONLY mcpServers passed
 		// programmatically and ignore filesystem MCP entries — applied unconditionally because
-		// settingSources is left at CC's default, which loads all sources.
+		// settingSources is CC's default (all sources) unless provider.settingSources narrows it.
 		const strictMcpConfigEnabled = providerSettings.strictMcpConfig !== false;
 		const claudeExecutable = providerSettings.pathToClaudeCodeExecutable;
 
@@ -2130,6 +2131,9 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 				append: systemPromptAppend ? systemPromptAppend : undefined,
 			},
 			extraArgs,
+			// Unset leaves CC's default (every source); ["user"] keeps a project's
+			// .claude/settings*.json (hooks, env, apiKeyHelper) out of the child.
+			...(providerSettings.settingSources ? { settingSources: [...providerSettings.settingSources] } : {}),
 			...(effort ? { effort } : {}),
 			...(mcpServers ? { mcpServers } : {}),
 			...(resumeSessionId ? { resume: resumeSessionId } : {}),

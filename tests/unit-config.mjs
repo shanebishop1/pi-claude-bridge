@@ -110,6 +110,34 @@ describe("loadConfig", () => {
 		}
 	}));
 
+	it("accepts settingSources as a list of distinct Claude Code sources", () => withTempHome(() => {
+		const dir = getAgentDir();
+		mkdirSync(dir, { recursive: true });
+		for (const settingSources of [[], ["user"], ["user", "project"], ["local", "project", "user"]]) {
+			writeFileSync(join(dir, "claude-bridge.json"), JSON.stringify({ provider: { settingSources } }));
+			assert.deepEqual(loadConfig(dir).provider.settingSources, settingSources);
+		}
+	}));
+
+	it("ignores invalid settingSources values without dropping other settings", () => withTempHome(() => {
+		const dir = getAgentDir();
+		mkdirSync(dir, { recursive: true });
+		const errors = [];
+		const original = console.error;
+		console.error = (...args) => errors.push(args.join(" "));
+		try {
+			const invalid = [null, "user", {}, true, ["policy"], ["user", "user"], ["User"], [1], [["user"]]];
+			for (const settingSources of invalid) {
+				writeFileSync(join(dir, "claude-bridge.json"), JSON.stringify({ provider: { settingSources, plan: "max" } }));
+				assert.deepEqual(loadConfig(dir).provider, { plan: "max" });
+			}
+			assert.equal(errors.length, invalid.length);
+			assert.ok(errors.every((error) => /provider\.settingSources.*ignoring/.test(error)));
+		} finally {
+			console.error = original;
+		}
+	}));
+
 	it("markStartupNoticeShown records today's date without dropping existing settings", () => withTempHome(() => {
 		const cwd = mkdtempSync(join(tmpdir(), "claude-bridge-project-"));
 		try {
