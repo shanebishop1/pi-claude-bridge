@@ -31,7 +31,7 @@ import { randomUUID } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { createServer } from "node:http";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
@@ -537,10 +537,11 @@ test("--thinking-display summarized is still an accepted flag value", { timeout:
  *  Lets a contract assert on the exact request CC builds, at zero API cost.
  *  `paths` records every request line; `overloadFirst` answers that many
  *  /v1/messages posts with a 529 first, which CC retries. */
-function stubApi(requests, { paths, overloadFirst = 0, toolCallsFirst = [], stall = false, inputTokens = 10 } = {}) {
+function stubApi(requests, { paths, headers, overloadFirst = 0, toolCallsFirst = [], stall = false, inputTokens = 10 } = {}) {
 	const server = createServer((req, res) => {
 		const chunks = [];
 		paths?.push(`${req.method} ${req.url}`);
+		if (req.method === "POST" && req.url.includes("/v1/messages")) headers?.push(req.headers);
 		req.on("data", (c) => chunks.push(c));
 		req.on("end", () => {
 			if (req.method === "POST" && req.url.includes("/v1/messages") && overloadFirst > 0) {
@@ -631,6 +632,38 @@ test("autoCompactWindow does not lower the blocking limit with DISABLE_AUTO_COMP
 			q.close();
 			api.close();
 		}
+	}
+});
+
+test("settingSources [\"user\"] keeps a project's .claude/settings*.json env out of the child", { timeout: 120_000 }, async () => {
+	// provider.settingSources is how a host keeps a product repo's settings (hooks,
+	// env, apiKeyHelper) out of the provider path. Observe `env` on the wire: the
+	// project and local files each name a header; local outranks project.
+	const cwd = mkdtempSync(join(tmpdir(), "cc-setting-sources-"));
+	mkdirSync(join(cwd, ".claude"));
+	const header = (value) => JSON.stringify({ env: { ANTHROPIC_CUSTOM_HEADERS: `x-bridge-probe: ${value}` } });
+	writeFileSync(join(cwd, ".claude", "settings.json"), header("project"));
+	writeFileSync(join(cwd, ".claude", "settings.local.json"), header("local"));
+	try {
+		for (const [sources, expected] of [[undefined, "local"], [["user", "project"], "project"], [["user"], undefined]]) {
+			const requests = [];
+			const headers = [];
+			const api = await stubApi(requests, { headers });
+			try {
+				const env = { ...process.env, ANTHROPIC_BASE_URL: api.url, ENABLE_CLAUDEAI_MCP_SERVERS: "0", DISABLE_AUTO_COMPACT: "1" };
+				delete env.ANTHROPIC_CUSTOM_HEADERS;
+				const { result } = await collect(query({ prompt: "Reply OK.", options: providerOptions({
+					cwd, env, persistSession: false, maxTurns: 1, ...(sources ? { settingSources: sources } : {}),
+				}) }));
+				assert.equal(result?.is_error, false, JSON.stringify(sources));
+				assert.ok(headers.length > 0, "the turn reached the stub");
+				assert.deepEqual([...new Set(headers.map((h) => h["x-bridge-probe"]))], [expected], JSON.stringify(sources));
+			} finally {
+				api.close();
+			}
+		}
+	} finally {
+		rmSync(cwd, { recursive: true, force: true });
 	}
 });
 

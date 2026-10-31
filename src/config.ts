@@ -4,6 +4,7 @@
 // unparseable files are ignored (error to console.error, empty object
 // returned) so the extension always starts.
 
+import type { SettingSource } from "@anthropic-ai/claude-agent-sdk";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
@@ -40,8 +41,14 @@ export interface Config {
 		// Optional token window for pi's auto-compaction; does not change the
 		// served model id or Claude Code's own compaction settings.
 		autoCompactWindow?: number;
+		// Claude Code settings sources for the provider's queries (unset: Claude Code's
+		// default, every source). ["user"] skips the project's .claude/settings.json and
+		// .claude/settings.local.json (their hooks, env and apiKeyHelper).
+		settingSources?: SettingSource[];
 	};
 }
+
+const SETTING_SOURCES: readonly string[] = ["user", "project", "local"] satisfies SettingSource[];
 
 export function tryParseJson(path: string): Partial<Config> {
 	if (!existsSync(path)) return {};
@@ -114,6 +121,14 @@ export function loadConfig(cwd: string): Config {
 		(!Number.isSafeInteger(provider.autoCompactWindow) || provider.autoCompactWindow <= 0)) {
 		console.error("claude-bridge: provider.autoCompactWindow must be a positive integer token count; ignoring it");
 		delete provider.autoCompactWindow;
+	}
+	const sources: unknown = provider.settingSources;
+	if (sources !== undefined && (!Array.isArray(sources) || new Set(sources).size !== sources.length ||
+		!sources.every((source) => typeof source === "string" && SETTING_SOURCES.includes(source)))) {
+		// Fail closed, as strictMcpConfig and autoMemoryEnabled do: an invalid value (including a project's,
+		// over a global ["user"]) loads no settings files rather than falling back to all of them.
+		console.error('claude-bridge: provider.settingSources must be an array of distinct "user", "project" or "local"; using [] (no settings files)');
+		provider.settingSources = [];
 	}
 	return {
 		startupNoticeShown: project.startupNoticeShown ?? global.startupNoticeShown,
