@@ -2,7 +2,7 @@
 
 ## UNRELEASED
 
-- **Add: settingSources** — Set `provider.settingSources` (e.g. `["user"]`) to keep a project's `.claude/settings.json` and `settings.local.json` (hooks, `env`, `apiKeyHelper`) out of the provider's Claude Code child; `CLAUDE.local.md` is now excluded like `CLAUDE.md`.
+- **Add: settingSources** — Set `provider.settingSources` (e.g. `["user"]`) to keep a project's `.claude/settings.json` and `settings.local.json` (hooks, `env`, `apiKeyHelper`) out of the provider's Claude Code child (an invalid value means `[]`); `CLAUDE.local.md` is now excluded like `CLAUDE.md`.
 
 - **Add: autoCompactWindow** — Set `provider.autoCompactWindow` to compact earlier in pi without changing the served model's context entitlement.
 

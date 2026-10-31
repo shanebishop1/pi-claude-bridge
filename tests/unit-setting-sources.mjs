@@ -73,12 +73,12 @@ it("passes the configured settingSources to the provider query", async () => {
 	}
 });
 
-it("drops an invalid settingSources rather than passing it on", async () => {
+it("fails closed on an invalid settingSources: the query loads no settings files", async () => {
 	const original = console.error;
 	console.error = () => {};
 	try {
 		const options = await providerQueryOptions({ provider: { settingSources: ["user", "policy"] } });
-		assert.equal("settingSources" in options, false);
+		assert.deepEqual(options.settingSources, []);
 	} finally {
 		console.error = original;
 	}

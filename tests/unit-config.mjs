@@ -119,7 +119,7 @@ describe("loadConfig", () => {
 		}
 	}));
 
-	it("ignores invalid settingSources values without dropping other settings", () => withTempHome(() => {
+	it("narrows an invalid settingSources to no sources without dropping other settings", () => withTempHome(() => {
 		const dir = getAgentDir();
 		mkdirSync(dir, { recursive: true });
 		const errors = [];
@@ -129,12 +129,30 @@ describe("loadConfig", () => {
 			const invalid = [null, "user", {}, true, ["policy"], ["user", "user"], ["User"], [1], [["user"]]];
 			for (const settingSources of invalid) {
 				writeFileSync(join(dir, "claude-bridge.json"), JSON.stringify({ provider: { settingSources, plan: "max" } }));
-				assert.deepEqual(loadConfig(dir).provider, { plan: "max" });
+				assert.deepEqual(loadConfig(dir).provider, { plan: "max", settingSources: [] });
 			}
 			assert.equal(errors.length, invalid.length);
-			assert.ok(errors.every((error) => /provider\.settingSources.*ignoring/.test(error)));
+			assert.ok(errors.every((error) => /provider\.settingSources.*using \[\]/.test(error)));
 		} finally {
 			console.error = original;
+		}
+	}));
+
+	it("an invalid project settingSources never widens the global one", () => withTempHome(() => {
+		const cwd = mkdtempSync(join(tmpdir(), "claude-bridge-project-"));
+		const original = console.error;
+		console.error = () => {};
+		try {
+			mkdirSync(getAgentDir(), { recursive: true });
+			mkdirSync(join(cwd, CONFIG_DIR_NAME), { recursive: true });
+			writeFileSync(join(getAgentDir(), "claude-bridge.json"), JSON.stringify({ provider: { settingSources: ["user"] } }));
+			for (const settingSources of [null, "project", ["policy"], ["user", "user"]]) {
+				writeFileSync(join(cwd, CONFIG_DIR_NAME, "claude-bridge.json"), JSON.stringify({ provider: { settingSources } }));
+				assert.deepEqual(loadConfig(cwd).provider.settingSources, [], JSON.stringify(settingSources));
+			}
+		} finally {
+			console.error = original;
+			rmSync(cwd, { recursive: true, force: true });
 		}
 	}));
 

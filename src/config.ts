@@ -125,8 +125,10 @@ export function loadConfig(cwd: string): Config {
 	const sources: unknown = provider.settingSources;
 	if (sources !== undefined && (!Array.isArray(sources) || new Set(sources).size !== sources.length ||
 		!sources.every((source) => typeof source === "string" && SETTING_SOURCES.includes(source)))) {
-		console.error('claude-bridge: provider.settingSources must be an array of distinct "user", "project" or "local"; ignoring it');
-		delete provider.settingSources;
+		// Fail closed, as strictMcpConfig and autoMemoryEnabled do: an invalid value (including a project's,
+		// over a global ["user"]) loads no settings files rather than falling back to all of them.
+		console.error('claude-bridge: provider.settingSources must be an array of distinct "user", "project" or "local"; using [] (no settings files)');
+		provider.settingSources = [];
 	}
 	return {
 		startupNoticeShown: project.startupNoticeShown ?? global.startupNoticeShown,
